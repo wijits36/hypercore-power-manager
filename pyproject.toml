@@ -1,0 +1,18 @@
+[project]
+name = "hypercore-power-manager"
+version = "0.1.0"
+description = "UPS-triggered graceful shutdown and recovery for Scale Computing HyperCore via NUT"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pynutclient>=2.8.4",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+]
+
+[project.scripts]
+hypercore-power-manager = "hypercore_power_manager:main"
+
+[build-system]
+requires = ["uv_build>=0.10.10,<0.11.0"]
+build-backend = "uv_build"
