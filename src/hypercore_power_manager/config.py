@@ -1,3 +1,5 @@
+"""Configuration loading and validation for hypercore-power-manager."""
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +13,8 @@ class NutConfig:
     host: str
     port: int = 3493
     ups_name: str = "ups"
+    username: str | None = None
+    password: str | None = None
     poll_interval_seconds: int = 5
 
 
@@ -32,6 +36,7 @@ class ClusterConfig:
     password: str
     nodes: list[NodeConfig]
     vm_shutdown_timeout: int = 300
+    verify_ssl: bool = False
 
 
 @dataclass
