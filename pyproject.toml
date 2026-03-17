@@ -5,6 +5,7 @@ description = "UPS-triggered graceful shutdown and recovery for Scale Computing 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "pyghmi>=1.6.13",
     "pynutclient>=2.8.4",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
