@@ -57,6 +57,8 @@ class PowerManager:
         """Main loop — poll UPS and dispatch to current state handler."""
         logger.info("Starting power manager in state %s", self._state.name)
         self._nut.connect()
+        # Tracks whether we're in a poll failure streak.
+        # Suppresses repeated error logs until polling recovers.
         poll_failed = False
 
         while True:
@@ -181,6 +183,7 @@ class PowerManager:
                     for vm in vms:
                         if vm.uuid in pending and vm.state == "SHUTOFF":
                             logger.info("VM %s reached SHUTOFF", vm.name)
+                            # discard() won't raise if UUID was already removed
                             pending.discard(vm.uuid)
 
                 # Force stop anything still running
@@ -268,6 +271,8 @@ class PowerManager:
             config = cluster["config"]
             logger.info("Waiting for HyperCore API on %s", config.host)
 
+            # while/else: the else block runs only if the loop exits
+            # WITHOUT a break, meaning we timed out waiting for the API.
             deadline = time.time() + self._config.thresholds.host_boot_timeout
             api_failed = False
             while time.time() < deadline:

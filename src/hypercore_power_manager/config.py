@@ -89,6 +89,8 @@ def load_config(path: str) -> Config:
     clusters_config = []
     for cluster_raw in raw.get("clusters", []):
         try:
+            # pop() removes "nodes" from the dict so it doesn't collide
+            # with the nodes= keyword argument when we unpack **cluster_raw
             nodes = [NodeConfig(**n) for n in cluster_raw.pop("nodes", [])]
             cluster_config = ClusterConfig(**cluster_raw, nodes=nodes)
             clusters_config.append(cluster_config)

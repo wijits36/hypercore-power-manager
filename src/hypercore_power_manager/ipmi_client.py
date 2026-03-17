@@ -6,7 +6,13 @@ from .config import NodeConfig
 
 
 class IPMIClient:
-    """Controls a single physical server's power state via IPMI."""
+    """Controls a single physical server's power state via IPMI.
+
+    Each method creates a fresh pyghmi connection rather than reusing
+    a persistent session. IPMI calls are infrequent (only during power
+    events), so the reconnection overhead is negligible and avoids
+    managing session lifecycle (timeouts, keepalives).
+    """
 
     def __init__(self, config: NodeConfig) -> None:
         self._config = config

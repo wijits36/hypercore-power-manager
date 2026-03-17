@@ -80,6 +80,8 @@ class HyperCoreClient:
         if self._session is None:
             raise RuntimeError("Not logged in. Call login() first.")
 
+        # HyperCore REST API expects an array, not a single object.
+        # Sending a bare object returns 400.
         response = self._session.post(
             f"{self._base_url}/VirDomain/action",
             json=[

@@ -45,6 +45,9 @@ class NUTClient:
             raise RuntimeError("Not connected. Call connect() first.")
 
         ups_vars = self._client.GetUPSVars(self._config.ups_name)
+        # pynutclient returns bytes keys/values (e.g. b'battery.charge').
+        # The isinstance check future-proofs against a potential switch to
+        # str that the maintainers have discussed but not yet implemented.
         ups_vars = {
             k.decode() if isinstance(k, bytes) else k: v.decode()
             if isinstance(v, bytes)
@@ -54,6 +57,11 @@ class NUTClient:
 
         status = ups_vars.get("ups.status", "")
 
+        # NUT status flags are space-separated, e.g. "OL CHRG" or "OB LB".
+        # Split into a set for exact matching rather than substring search,
+        # which avoids false positives if a future flag contains "OL" or "OB".
+        status_flags = status.split()
+
         return UPSStatus(
             status=status,
             battery_charge=float(ups_vars.get("battery.charge", 0)),
@@ -62,6 +70,6 @@ class NUTClient:
             output_voltage=float(ups_vars.get("output.voltage", 0)),
             battery_voltage=float(ups_vars.get("battery.voltage", 0)),
             ups_load=float(ups_vars.get("ups.load", 0)),
-            on_battery="OB" in status,
-            on_line="OL" in status,
+            on_battery="OB" in status_flags,
+            on_line="OL" in status_flags,
         )
