@@ -10,6 +10,7 @@ class IPMIClient:
 
     def __init__(self, config: NodeConfig) -> None:
         self._config = config
+        self.hostname = config.ipmi_host
 
     def power_status(self) -> str:
         """Query the current power state of the host.

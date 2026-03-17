@@ -46,6 +46,7 @@ class ThresholdsConfig:
     battery_percent: int = 50
     runtime_seconds: int = 600
     host_shutdown_delay: int = 300
+    host_boot_timeout: int = 600
 
 
 @dataclass
