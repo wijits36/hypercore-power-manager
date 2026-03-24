@@ -1,8 +1,10 @@
 [Unit]
 Description=HyperCore Power Manager - UPS-triggered graceful shutdown/recovery
-Documentation=https://github.com/wijits/hypercore-power-manager
+Documentation=https://github.com/wijits36/hypercore-power-manager
 After=network-online.target nut-server.service
 Wants=network-online.target nut-server.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -15,8 +17,6 @@ ExecStart=/opt/hypercore-power-manager/.venv/bin/python -m hypercore_power_manag
 
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=120
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
