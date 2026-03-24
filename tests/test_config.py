@@ -35,9 +35,6 @@ clusters:
 thresholds:
   battery_percent: 40
   runtime_seconds: 500
-
-logging:
-  level: "DEBUG"
 """)
 
     config = load_config(str(config_file))
@@ -52,7 +49,6 @@ logging:
     assert config.thresholds.battery_percent == 40
     assert config.thresholds.runtime_seconds == 500
     assert config.thresholds.host_shutdown_delay == 300
-    assert config.logging.level == "DEBUG"
 
 
 def test_load_config_minimal(tmp_path):
@@ -71,7 +67,6 @@ clusters: []
     assert config.nut.port == 3493
     assert config.clusters == []
     assert config.thresholds.battery_percent == 50
-    assert config.logging.level == "INFO"
 
 
 def test_load_config_invalid_cluster(tmp_path):

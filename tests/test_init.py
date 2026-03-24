@@ -39,11 +39,7 @@ nut:
   host: "10.0.0.1"
 
 clusters: []
-
-logging:
-  file: "{log_path}"
-  level: "INFO"
-""".format(log_path=str(tmp_path / "test.log"))
+"""
     )
 
     with patch("sys.argv", ["hypercore-power-manager", "--config", str(config_file)]):

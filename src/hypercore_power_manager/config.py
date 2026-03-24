@@ -50,21 +50,12 @@ class ThresholdsConfig:
 
 
 @dataclass
-class LoggingConfig:
-    """Logging settings."""
-
-    file: str = "/var/log/hypercore-power-manager.log"
-    level: str = "INFO"
-
-
-@dataclass
 class Config:
     """Top-level configuration container."""
 
     nut: NutConfig
     clusters: list[ClusterConfig]
     thresholds: ThresholdsConfig
-    logging: LoggingConfig
 
 
 def load_config(path: str) -> Config:
@@ -104,16 +95,8 @@ def load_config(path: str) -> Config:
     except TypeError as e:
         raise ValueError(f"Invalid thresholds config: {e}") from e
 
-    # Logging configuration
-    logging_raw = raw.get("logging", {})
-    try:
-        logging_config = LoggingConfig(**logging_raw)
-    except TypeError as e:
-        raise ValueError(f"Invalid logging config: {e}") from e
-
     return Config(
         nut=nut_config,
         clusters=clusters_config,
         thresholds=thresholds_config,
-        logging=logging_config,
     )

@@ -7,7 +7,6 @@ import pytest
 from hypercore_power_manager.config import (
     ClusterConfig,
     Config,
-    LoggingConfig,
     NodeConfig,
     NutConfig,
     ThresholdsConfig,
@@ -37,7 +36,6 @@ def config():
             ),
         ],
         thresholds=ThresholdsConfig(),
-        logging=LoggingConfig(),
     )
 
 

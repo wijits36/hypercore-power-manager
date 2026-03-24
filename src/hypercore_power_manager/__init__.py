@@ -19,7 +19,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Phase 1: Basic console logging so config errors are visible
+    # Log to stderr — systemd captures this into the journal automatically
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -33,23 +33,7 @@ def main() -> None:
         logger.error("Configuration error: %s", e)
         raise SystemExit(1)
 
-    # Phase 2: Reconfigure logging with settings from config
-    log_level = getattr(logging, config.logging.level.upper(), logging.INFO)
-
-    # File handler — persistent log for troubleshooting
-    file_handler = logging.FileHandler(config.logging.file)
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    )
-
-    # Reconfigure root logger with both console and file output
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-    root_logger.addHandler(file_handler)
-
     logger.info("Configuration loaded from %s", args.config)
-    logger.info("Logging to %s at level %s", config.logging.file, config.logging.level)
 
     # Launch the power manager
     from .monitor import PowerManager
