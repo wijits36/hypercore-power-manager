@@ -1,0 +1,50 @@
+# hypercore-power-manager configuration
+# Copy to /etc/hypercore-power-manager/config.yaml and edit for your environment.
+
+# --- NUT (Network UPS Tools) connection ---
+nut:
+    host: "your-nut-server-ip" # NUT server IP or hostname
+    port: 3493 # Default NUT port (optional, default: 3493)
+    ups_name: "ups" # UPS name as configured in ups.conf (optional, default: "ups")
+    poll_interval_seconds: 5 # Seconds between UPS polls (optional, default: 5)
+
+# --- HyperCore clusters ---
+# Each cluster has one HyperCore API endpoint and one or more physical nodes.
+# The daemon shuts down VMs via the API, then powers off each node via IPMI.
+# Add as many clusters and nodes as needed.
+clusters:
+    # Multi-node cluster example
+    - host: "https://cluster1.example.com"
+      username: "admin"
+      password: "CHANGE_ME"
+      vm_shutdown_timeout: 300 # Seconds to wait for VMs to stop (optional, default: 300)
+      nodes:
+          - ipmi_host: "idrac-node1.example.com"
+            ipmi_username: "root"
+            ipmi_password: "CHANGE_ME"
+          - ipmi_host: "idrac-node2.example.com"
+            ipmi_username: "root"
+            ipmi_password: "CHANGE_ME"
+          - ipmi_host: "idrac-node3.example.com"
+            ipmi_username: "root"
+            ipmi_password: "CHANGE_ME"
+
+    # Single-node cluster example
+    - host: "https://cluster2.example.com"
+      username: "admin"
+      password: "CHANGE_ME"
+      nodes:
+          - ipmi_host: "idrac-standalone.example.com"
+            ipmi_username: "root"
+            ipmi_password: "CHANGE_ME"
+
+# --- Shutdown thresholds ---
+# While on battery, the daemon triggers VM shutdown when EITHER threshold is breached.
+thresholds:
+    battery_percent: 50 # Shut down VMs below this battery level (optional, default: 50)
+    runtime_seconds: 600 # Shut down VMs below this runtime estimate (optional, default: 600)
+    host_shutdown_delay: 300 # Seconds to wait after VMs stop before powering off hosts (optional, default: 300)
+
+# --- Logging ---
+logging:
+    level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL (optional, default: "INFO")

@@ -1,0 +1,34 @@
+[Unit]
+Description=HyperCore Power Manager - UPS-triggered graceful shutdown/recovery
+Documentation=https://github.com/wijits/hypercore-power-manager
+After=network-online.target nut-server.service
+Wants=network-online.target nut-server.service
+
+[Service]
+Type=simple
+User=hcpowermgr
+Group=hcpowermgr
+
+WorkingDirectory=/opt/hypercore-power-manager
+ExecStart=/opt/hypercore-power-manager/.venv/bin/python -m hypercore_power_manager \
+    --config /etc/hypercore-power-manager/config.yaml
+
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hypercore-power-manager
+
+ProtectSystem=full
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Future: uncomment when state persistence is implemented
+# StateDirectory=hypercore-power-manager
+
+[Install]
+WantedBy=multi-user.target
