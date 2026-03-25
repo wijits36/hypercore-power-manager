@@ -27,11 +27,10 @@ class NUTClient:
 
     def __init__(self, config: NutConfig) -> None:
         self._config = config
-        self._client: PyNUTConnection | None = None
 
-    def connect(self) -> None:
-        """Establish connection to the NUT server."""
-        self._client = PyNUTConnection(
+    def _create_connection(self) -> PyNUTConnection:
+        """Create a new NUT server connection."""
+        return PyNUTConnection(
             host=self._config.host,
             port=self._config.port,
             login=self._config.username,
@@ -39,12 +38,20 @@ class NUTClient:
             timeout=5,
         )
 
+    def connect(self) -> None:
+        """Test that the NUT server is reachable.
+
+        Creates a temporary connection to verify the server is up.
+        Used at startup for early failure detection. poll() creates
+        its own fresh connection each call.
+        """
+        self._create_connection()
+
     def poll(self) -> UPSStatus:
         """Poll the UPS and return its current status."""
-        if self._client is None:
-            raise RuntimeError("Not connected. Call connect() first.")
+        client = self._create_connection()
 
-        ups_vars = self._client.GetUPSVars(self._config.ups_name)
+        ups_vars = client.GetUPSVars(self._config.ups_name)
         # pynutclient returns bytes keys/values (e.g. b'battery.charge').
         # The isinstance check future-proofs against a potential switch to
         # str that the maintainers have discussed but not yet implemented.

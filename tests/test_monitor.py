@@ -824,7 +824,8 @@ def test_run_poll_failure_and_recovery(manager):
         except KeyboardInterrupt:
             pass
 
-        # Should have attempted to reconnect after each failure
-        assert manager._nut.connect.call_count >= 2
+        # connect() is only called once at startup — poll() handles
+        # its own connections, so no reconnect attempts are needed
+        assert manager._nut.connect.call_count == 1
         # Should still be in MONITORING — failures don't change state
         assert manager._state == State.MONITORING

@@ -118,19 +118,6 @@ def test_poll_missing_variable_defaults_to_zero(mock_connection_class):
 
 
 @patch("hypercore_power_manager.nut_client.PyNUTConnection")
-def test_poll_not_connected_raises(mock_connection_class):
-    """poll() raises RuntimeError if called before connect()."""
-    config = NutConfig(host="10.0.0.1", ups_name="testups")
-    client = NUTClient(config)
-
-    # Never called connect(), so _client is None
-    import pytest
-
-    with pytest.raises(RuntimeError, match="Not connected"):
-        client.poll()
-
-
-@patch("hypercore_power_manager.nut_client.PyNUTConnection")
 def test_connect_passes_config(mock_connection_class):
     """connect() passes config values to PyNUTConnection constructor."""
     config = NutConfig(
@@ -178,3 +165,31 @@ def test_poll_handles_string_values(mock_connection_class):
     assert status.battery_charge == 22.0
     assert status.on_battery is True
     assert status.on_line is False
+
+
+@patch("hypercore_power_manager.nut_client.PyNUTConnection")
+def test_poll_creates_fresh_connection(mock_connection_class):
+    """poll() creates a new connection each call, preventing stale sockets."""
+    mock_conn = MagicMock()
+    mock_connection_class.return_value = mock_conn
+
+    mock_conn.GetUPSVars.return_value = {
+        b"ups.status": b"OL",
+        b"battery.charge": b"100",
+        b"battery.runtime": b"1560",
+        b"input.voltage": b"122.0",
+        b"output.voltage": b"120.0",
+        b"battery.voltage": b"27.4",
+        b"ups.load": b"27",
+    }
+
+    config = NutConfig(host="10.0.0.1", ups_name="testups")
+    client = NUTClient(config)
+
+    # Call poll() twice without connect() — both should work
+    client.poll()
+    client.poll()
+
+    # PyNUTConnection constructor should have been called twice,
+    # once per poll() — proving each poll gets a fresh connection
+    assert mock_connection_class.call_count == 2

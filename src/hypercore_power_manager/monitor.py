@@ -71,10 +71,6 @@ class PowerManager:
                 if not poll_failed:
                     logger.error("Failed to poll UPS: %s", e)
                     poll_failed = True
-                try:
-                    self._nut.connect()
-                except Exception:
-                    pass
                 time.sleep(self._config.nut.poll_interval_seconds)
                 continue
 
