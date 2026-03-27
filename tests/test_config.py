@@ -48,7 +48,7 @@ thresholds:
     assert config.clusters[0].nodes[0].ipmi_host == "ipmi1.example"
     assert config.thresholds.battery_percent == 40
     assert config.thresholds.runtime_seconds == 500
-    assert config.thresholds.host_shutdown_delay == 300
+    assert config.thresholds.host_shutdown_delay == 60
 
 
 def test_load_config_minimal(tmp_path):
@@ -66,7 +66,7 @@ clusters: []
     assert config.nut.host == "10.0.0.1"
     assert config.nut.port == 3493
     assert config.clusters == []
-    assert config.thresholds.battery_percent == 50
+    assert config.thresholds.battery_percent == 80
 
 
 def test_load_config_invalid_cluster(tmp_path):

@@ -145,7 +145,7 @@ def test_on_battery_stays_when_above_thresholds(manager):
 
     ups = UPSStatus(
         status="OB",
-        battery_charge=51.0,
+        battery_charge=81.0,
         battery_runtime=601.0,
         input_voltage=0.0,
         output_voltage=120.0,
@@ -317,9 +317,9 @@ def test_waiting_for_host_shutdown_timer_expires(manager):
         manager._handle_state(ups)
         assert manager._state == State.WAITING_FOR_HOST_SHUTDOWN
 
-        # Second tick at T=1301: 301 seconds later, exceeds the default
-        # host_shutdown_delay of 300 seconds
-        mock_time.return_value = 1301.0
+        # Second tick at T=1301: 61 seconds later, exceeds the default
+        # host_shutdown_delay of 60 seconds
+        mock_time.return_value = 1061.0
         manager._handle_state(ups)
         assert manager._state == State.SHUTTING_DOWN_HOSTS
 

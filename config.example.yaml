@@ -39,12 +39,22 @@ clusters:
             ipmi_password: "CHANGE_ME"
 
 # --- Shutdown thresholds ---
-# While on battery, the daemon triggers VM shutdown when EITHER threshold is breached.
+# While on battery, the daemon triggers VM shutdown when EITHER threshold is
+# breached. Both values are UPS firmware estimates and share the same
+# underlying uncertainty — the aggressive defaults are intentional.
 thresholds:
-    battery_percent: 50 # Shut down VMs below this battery level (optional, default: 50)
-    runtime_seconds: 600 # Shut down VMs below this runtime estimate (optional, default: 600)
-    host_shutdown_delay: 300 # Seconds to wait after VMs stop before powering off hosts (optional, default: 300)
-
-# --- Logging ---
-logging:
-    level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL (optional, default: "INFO")
+    battery_percent:
+        80 # Trigger below this charge level (optional, default: 80)
+        # Conservative — UPS charge estimates can be unreliable.
+    runtime_seconds:
+        600 # Trigger below this runtime estimate in seconds (optional, default: 600)
+        # Catches undersized-UPS scenarios that battery_percent alone misses,
+        # since runtime factors in current load.
+    host_shutdown_delay:
+        60 # Seconds to wait after VMs stop before powering off hosts (optional, default: 60)
+        # This is the abort window — if power returns during this delay,
+        # hosts stay up and VMs restart immediately. Increase if your UPS
+        # has plenty of capacity and you want a longer abort window.
+    host_boot_timeout:
+        600 # Max seconds to wait for HyperCore API after host power-on (optional, default: 600)
+        # Depends on server POST time.

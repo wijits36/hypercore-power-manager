@@ -43,9 +43,9 @@ class ClusterConfig:
 class ThresholdsConfig:
     """Thresholds that control when shutdown stages trigger."""
 
-    battery_percent: int = 50
+    battery_percent: int = 80
     runtime_seconds: int = 600
-    host_shutdown_delay: int = 300
+    host_shutdown_delay: int = 60
     host_boot_timeout: int = 600
 
 
