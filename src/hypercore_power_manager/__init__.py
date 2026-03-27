@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import signal
 
 from .config import load_config
 
@@ -35,6 +36,13 @@ def main() -> None:
 
     logger.info("Configuration loaded from %s", args.config)
 
+    # Handle SIGTERM (from systemctl stop) with a clean exit
+    def handle_sigterm(signum, frame):
+        logger.info("Shutting down (received SIGTERM)")
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
     # Launch the power manager
     from .monitor import PowerManager
 
@@ -43,3 +51,5 @@ def main() -> None:
         manager.run()
     except KeyboardInterrupt:
         logger.info("Shutting down (received interrupt)")
+    except SystemExit:
+        pass  # Already logged in handle_sigterm

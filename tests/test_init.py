@@ -52,3 +52,32 @@ clusters: []
             # PowerManager should have been created and run() called
             mock_pm_class.assert_called_once()
             mock_manager.run.assert_called_once()
+
+
+def test_sigterm_exits_cleanly(tmp_path):
+    """main() handles SIGTERM with a clean shutdown."""
+    import os
+    import signal as sig
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+nut:
+  host: "10.0.0.1"
+clusters: []
+"""
+    )
+
+    with patch("sys.argv", ["hypercore-power-manager", "--config", str(config_file)]):
+        with patch("hypercore_power_manager.monitor.PowerManager") as mock_pm_class:
+            mock_manager = MagicMock()
+            # When run() is called, send SIGTERM to ourselves.
+            # This triggers the handler registered by main().
+            mock_manager.run.side_effect = lambda: os.kill(os.getpid(), sig.SIGTERM)
+            mock_pm_class.return_value = mock_manager
+
+            # main() should return normally — SystemExit(0) raised by
+            # the handler, caught by except SystemExit in main()
+            main()
+
+            mock_manager.run.assert_called_once()
