@@ -46,7 +46,7 @@ class PowerManager:
                     "config": cluster_cfg,
                     "hypercore": hc_client,
                     "ipmi_clients": ipmi_clients,
-                    "saved_vm_uuids": [],
+                    "saved_vms": [],
                 }
             )
 
@@ -56,7 +56,39 @@ class PowerManager:
     def run(self) -> None:
         """Main loop — poll UPS and dispatch to current state handler."""
         logger.info("Starting power manager in state %s", self._state.name)
+
+        # Log configured topology so the journal is self-contained
+        nut = self._config.nut
+        logger.info(
+            "Connecting to NUT at %s:%d (UPS: %s, poll interval: %ds)",
+            nut.host,
+            nut.port,
+            nut.ups_name,
+            nut.poll_interval_seconds,
+        )
         self._nut.connect()
+
+        for cluster in self._clusters:
+            cfg = cluster["config"]
+            ipmi_hosts = ", ".join(node.ipmi_host for node in cfg.nodes)
+            logger.info(
+                "Cluster %s (IPMI: %s; VM shutdown timeout: %ds; verify SSL: %s)",
+                cfg.host,
+                ipmi_hosts,
+                cfg.vm_shutdown_timeout,
+                cfg.verify_ssl,
+            )
+
+        t = self._config.thresholds
+        logger.info(
+            "Thresholds: battery <= %d%%, runtime <= %ds, "
+            "host shutdown delay: %ds, host boot timeout: %ds",
+            t.battery_percent,
+            t.runtime_seconds,
+            t.host_shutdown_delay,
+            t.host_boot_timeout,
+        )
+
         # Tracks whether we're in a poll failure streak.
         # Suppresses repeated error logs until polling recovers.
         poll_failed = False
@@ -115,17 +147,27 @@ class PowerManager:
             return
 
         thresholds = self._config.thresholds
-        if (
-            ups.battery_charge <= thresholds.battery_percent
-            or ups.battery_runtime <= thresholds.runtime_seconds
-        ):
+        battery_crossed = ups.battery_charge <= thresholds.battery_percent
+        runtime_crossed = ups.battery_runtime <= thresholds.runtime_seconds
+
+        if battery_crossed or runtime_crossed:
+            # Build a list of which thresholds triggered
+            triggered = []
+            if battery_crossed:
+                triggered.append("battery")
+            if runtime_crossed:
+                triggered.append("runtime")
+
             logger.warning(
-                "Thresholds crossed — charge: %.0f%% (<= %d%%), "
-                "runtime: %.0fs (<= %ds). Beginning VM shutdown.",
+                "Threshold crossed (%s) — charge: %.0f%% (limit: %d%%, %s), "
+                "runtime: %.0fs (limit: %ds, %s). Beginning VM shutdown.",
+                ", ".join(triggered),
                 ups.battery_charge,
                 thresholds.battery_percent,
+                "CROSSED" if battery_crossed else "ok",
                 ups.battery_runtime,
                 thresholds.runtime_seconds,
+                "CROSSED" if runtime_crossed else "ok",
             )
             self._state = State.SHUTTING_DOWN_VMS
 
@@ -145,9 +187,9 @@ class PowerManager:
             vms = hc.get_vms()
             running = [vm for vm in vms if vm.state == "RUNNING"]
 
-            # TODO: Persist saved_vm_uuids to disk so recovery can
+            # TODO: Persist saved_vms to disk so recovery can
             # resume if the Pi reboots during a power event.
-            cluster["saved_vm_uuids"] = [vm.uuid for vm in running]
+            cluster["saved_vms"] = [(vm.uuid, vm.name) for vm in running]
             logger.info(
                 "Cluster %s — saving %d running VMs: %s",
                 config.host,
@@ -166,7 +208,9 @@ class PowerManager:
         for cluster in self._clusters:
             hc = cluster["hypercore"]
             config = cluster["config"]
-            pending = set(cluster["saved_vm_uuids"])
+            # Build a UUID->name lookup and track pending UUIDs
+            pending_names = {uuid: name for uuid, name in cluster["saved_vms"]}
+            pending = set(pending_names.keys())
 
             if pending:
                 deadline = time.time() + config.vm_shutdown_timeout
@@ -178,14 +222,17 @@ class PowerManager:
                         continue
                     for vm in vms:
                         if vm.uuid in pending and vm.state == "SHUTOFF":
-                            logger.info("VM %s reached SHUTOFF", vm.name)
-                            # discard() won't raise if UUID was already removed
+                            logger.info(
+                                "[%s] VM %s reached SHUTOFF", config.host, vm.name
+                            )
                             pending.discard(vm.uuid)
 
                 # Force stop anything still running
                 for vm_uuid in pending:
                     logger.warning(
-                        "VM %s did not shut down in time, forcing STOP",
+                        "[%s] VM %s (%s) did not shut down in time, forcing STOP",
+                        config.host,
+                        pending_names.get(vm_uuid, vm_uuid),
                         vm_uuid,
                     )
                     try:
@@ -302,7 +349,7 @@ class PowerManager:
         for cluster in self._clusters:
             hc = cluster["hypercore"]
             config = cluster["config"]
-            saved = cluster["saved_vm_uuids"]
+            saved = cluster["saved_vms"]
 
             if not saved:
                 continue
@@ -310,48 +357,59 @@ class PowerManager:
             try:
                 hc.login()
             except Exception as e:
-                logger.error("Failed to login to %s: %s", config.host, e)
+                logger.error("[%s] Failed to login: %s", config.host, e)
                 continue
 
-            # Track which VMs still need to be started.
-            # Starts as a copy of saved — VMs are removed as they succeed.
-            remaining = list(saved)
+            # Build UUID->name lookup for logging
+            vm_names = {uuid: name for uuid, name in saved}
+            remaining = [uuid for uuid, name in saved]
+            total = len(remaining)
+
+            logger.info(
+                "[%s] Starting %d VMs: %s",
+                config.host,
+                total,
+                ", ".join(vm_names[uuid] for uuid in remaining),
+            )
 
             for attempt in range(1, max_attempts + 1):
                 failed = []
                 for vm_uuid in remaining:
-                    logger.info(
-                        "Starting VM %s on %s (attempt %d/%d)",
-                        vm_uuid,
-                        config.host,
-                        attempt,
-                        max_attempts,
-                    )
                     try:
                         hc.start_vm(vm_uuid)
-                    except Exception as e:
-                        logger.warning("Failed to start VM %s: %s", vm_uuid, e)
+                    except Exception:
                         failed.append(vm_uuid)
 
                 remaining = failed
+
                 if not remaining:
+                    logger.info(
+                        "[%s] Attempt %d/%d: all %d VMs started",
+                        config.host,
+                        attempt,
+                        max_attempts,
+                        total,
+                    )
                     break
 
-                logger.info(
-                    "%d VM(s) still pending on %s, retrying in %ds",
-                    len(remaining),
+                logger.warning(
+                    "[%s] Attempt %d/%d: %d/%d started — retrying in %ds",
                     config.host,
+                    attempt,
+                    max_attempts,
+                    total - len(remaining),
+                    total,
                     retry_delay,
                 )
                 time.sleep(retry_delay)
 
             if remaining:
                 logger.error(
-                    "Gave up starting %d VM(s) on %s after %d attempts: %s",
-                    len(remaining),
+                    "[%s] Gave up starting %d VM(s) after %d attempts: %s",
                     config.host,
+                    len(remaining),
                     max_attempts,
-                    ", ".join(remaining),
+                    ", ".join(vm_names.get(uuid, uuid) for uuid in remaining),
                 )
 
             try:
@@ -359,7 +417,7 @@ class PowerManager:
             except Exception:
                 pass
 
-            cluster["saved_vm_uuids"] = []
+            cluster["saved_vms"] = []
 
         self._state = State.MONITORING
         logger.info("Recovery complete. Resuming normal monitoring.")

@@ -217,7 +217,10 @@ def test_shutting_down_vms_happy_path(manager):
 
         # Verify state transition and that the right API calls were made
         assert manager._state == State.WAITING_FOR_HOST_SHUTDOWN
-        assert manager._clusters[0]["saved_vm_uuids"] == ["vm-1", "vm-2"]
+        assert manager._clusters[0]["saved_vms"] == [
+            ("vm-1", "web-server"),
+            ("vm-2", "db-server"),
+        ]
         hc.login.assert_called_once()
         hc.shutdown_vm.assert_any_call("vm-1")
         hc.shutdown_vm.assert_any_call("vm-2")
@@ -246,7 +249,7 @@ def test_shutting_down_vms_none_running(manager):
         manager._handle_state(ups)
 
         assert manager._state == State.WAITING_FOR_HOST_SHUTDOWN
-        assert manager._clusters[0]["saved_vm_uuids"] == []
+        assert manager._clusters[0]["saved_vms"] == []
         hc.shutdown_vm.assert_not_called()
 
 
@@ -561,7 +564,7 @@ def test_starting_vms(manager):
 
     hc = manager._clusters[0]["hypercore"]
     # These were saved during the shutdown phase
-    manager._clusters[0]["saved_vm_uuids"] = ["vm-1", "vm-2"]
+    manager._clusters[0]["saved_vms"] = [("vm-1", "web-server"), ("vm-2", "db-server")]
 
     ups = UPSStatus(
         status="OL",
@@ -582,7 +585,7 @@ def test_starting_vms(manager):
     hc.start_vm.assert_any_call("vm-1")
     hc.start_vm.assert_any_call("vm-2")
     # saved list should be cleared after restart
-    assert manager._clusters[0]["saved_vm_uuids"] == []
+    assert manager._clusters[0]["saved_vms"] == []
 
 
 def test_starting_vms_none_saved(manager):
@@ -590,7 +593,7 @@ def test_starting_vms_none_saved(manager):
     manager._state = State.STARTING_VMS
 
     hc = manager._clusters[0]["hypercore"]
-    manager._clusters[0]["saved_vm_uuids"] = []
+    manager._clusters[0]["saved_vms"] = []
 
     ups = UPSStatus(
         status="OL",
@@ -672,7 +675,7 @@ def test_starting_vms_login_fails(manager):
     manager._state = State.STARTING_VMS
 
     hc = manager._clusters[0]["hypercore"]
-    manager._clusters[0]["saved_vm_uuids"] = ["vm-1"]
+    manager._clusters[0]["saved_vms"] = [("vm-1", "web-server")]
     hc.login.side_effect = Exception("Connection refused")
 
     ups = UPSStatus(
@@ -837,7 +840,10 @@ def test_starting_vms_retry_then_succeed(manager):
         manager._state = State.STARTING_VMS
 
         hc = manager._clusters[0]["hypercore"]
-        manager._clusters[0]["saved_vm_uuids"] = ["vm-1", "vm-2"]
+        manager._clusters[0]["saved_vms"] = [
+            ("vm-1", "web-server"),
+            ("vm-2", "db-server"),
+        ]
 
         # Attempt 1: both fail (API subsystem not ready — the S11 bug).
         # Attempt 2: both succeed.
@@ -869,7 +875,7 @@ def test_starting_vms_retry_then_succeed(manager):
 
         assert manager._state == State.MONITORING
         assert hc.start_vm.call_count == 4
-        assert manager._clusters[0]["saved_vm_uuids"] == []
+        assert manager._clusters[0]["saved_vms"] == []
 
 
 def test_starting_vms_partial_failure(manager):
@@ -878,7 +884,10 @@ def test_starting_vms_partial_failure(manager):
         manager._state = State.STARTING_VMS
 
         hc = manager._clusters[0]["hypercore"]
-        manager._clusters[0]["saved_vm_uuids"] = ["vm-1", "vm-2"]
+        manager._clusters[0]["saved_vms"] = [
+            ("vm-1", "web-server"),
+            ("vm-2", "db-server"),
+        ]
 
         # Attempt 1: vm-1 succeeds, vm-2 fails.
         # Attempt 2: vm-2 succeeds.
@@ -916,7 +925,7 @@ def test_starting_vms_exhausted_retries(manager):
         manager._state = State.STARTING_VMS
 
         hc = manager._clusters[0]["hypercore"]
-        manager._clusters[0]["saved_vm_uuids"] = ["vm-1"]
+        manager._clusters[0]["saved_vms"] = [("vm-1", "web-server")]
 
         # Every start_vm call fails — API never becomes ready
         hc.start_vm.side_effect = Exception("400 Bad Request")
@@ -940,6 +949,6 @@ def test_starting_vms_exhausted_retries(manager):
         # 20 attempts, 1 VM each = 20 calls
         assert hc.start_vm.call_count == 20
         # saved list still cleared — don't carry stale UUIDs into next event
-        assert manager._clusters[0]["saved_vm_uuids"] == []
+        assert manager._clusters[0]["saved_vms"] == []
         # 20 sleeps (after each failed attempt except the last)
         assert mock_sleep.call_count == 20

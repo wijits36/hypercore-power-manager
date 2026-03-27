@@ -96,7 +96,7 @@ class HyperCoreClient:
             ],
         )
         if not response.ok:
-            logger.error(
+            logger.debug(
                 "VM action %s failed on %s — HTTP %d: %s",
                 action,
                 vm_uuid,
