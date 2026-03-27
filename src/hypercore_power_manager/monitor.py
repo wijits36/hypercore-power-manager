@@ -296,6 +296,9 @@ class PowerManager:
 
     def _handle_starting_vms(self, ups) -> None:
         """Start VMs that were running before the shutdown."""
+        max_attempts = 20
+        retry_delay = 15
+
         for cluster in self._clusters:
             hc = cluster["hypercore"]
             config = cluster["config"]
@@ -310,12 +313,46 @@ class PowerManager:
                 logger.error("Failed to login to %s: %s", config.host, e)
                 continue
 
-            for vm_uuid in saved:
-                logger.info("Starting VM %s on %s", vm_uuid, config.host)
-                try:
-                    hc.start_vm(vm_uuid)
-                except Exception as e:
-                    logger.error("Failed to start VM %s: %s", vm_uuid, e)
+            # Track which VMs still need to be started.
+            # Starts as a copy of saved — VMs are removed as they succeed.
+            remaining = list(saved)
+
+            for attempt in range(1, max_attempts + 1):
+                failed = []
+                for vm_uuid in remaining:
+                    logger.info(
+                        "Starting VM %s on %s (attempt %d/%d)",
+                        vm_uuid,
+                        config.host,
+                        attempt,
+                        max_attempts,
+                    )
+                    try:
+                        hc.start_vm(vm_uuid)
+                    except Exception as e:
+                        logger.warning("Failed to start VM %s: %s", vm_uuid, e)
+                        failed.append(vm_uuid)
+
+                remaining = failed
+                if not remaining:
+                    break
+
+                logger.info(
+                    "%d VM(s) still pending on %s, retrying in %ds",
+                    len(remaining),
+                    config.host,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
+
+            if remaining:
+                logger.error(
+                    "Gave up starting %d VM(s) on %s after %d attempts: %s",
+                    len(remaining),
+                    config.host,
+                    max_attempts,
+                    ", ".join(remaining),
+                )
 
             try:
                 hc.logout()

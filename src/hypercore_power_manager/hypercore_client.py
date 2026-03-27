@@ -1,11 +1,14 @@
 """HyperCore REST API client for VM power management."""
 
+import logging
 from dataclasses import dataclass
 
 import requests
 import urllib3
 
 from .config import ClusterConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,7 +95,15 @@ class HyperCoreClient:
                 }
             ],
         )
-        response.raise_for_status()
+        if not response.ok:
+            logger.error(
+                "VM action %s failed on %s — HTTP %d: %s",
+                action,
+                vm_uuid,
+                response.status_code,
+                response.text,
+            )
+            response.raise_for_status()
 
     def shutdown_vm(self, vm_uuid: str) -> None:
         """Gracefully shut down a VM via ACPI signal."""

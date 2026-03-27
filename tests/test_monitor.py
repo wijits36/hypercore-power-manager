@@ -829,3 +829,117 @@ def test_run_poll_failure_and_recovery(manager):
         assert manager._nut.connect.call_count == 1
         # Should still be in MONITORING — failures don't change state
         assert manager._state == State.MONITORING
+
+
+def test_starting_vms_retry_then_succeed(manager):
+    """STARTING_VMS retries failed VM starts and eventually succeeds."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        manager._state = State.STARTING_VMS
+
+        hc = manager._clusters[0]["hypercore"]
+        manager._clusters[0]["saved_vm_uuids"] = ["vm-1", "vm-2"]
+
+        # Attempt 1: both fail (API subsystem not ready — the S11 bug).
+        # Attempt 2: both succeed.
+        # side_effect processes calls in order, so:
+        #   call 1 (vm-1, attempt 1): raise
+        #   call 2 (vm-2, attempt 1): raise
+        #   call 3 (vm-1, attempt 2): succeed
+        #   call 4 (vm-2, attempt 2): succeed
+        hc.start_vm.side_effect = [
+            Exception("400 Bad Request"),
+            Exception("400 Bad Request"),
+            None,
+            None,
+        ]
+
+        ups = UPSStatus(
+            status="OL",
+            battery_charge=30.0,
+            battery_runtime=400.0,
+            input_voltage=122.0,
+            output_voltage=120.0,
+            battery_voltage=26.0,
+            ups_load=27.0,
+            on_battery=False,
+            on_line=True,
+        )
+
+        manager._handle_state(ups)
+
+        assert manager._state == State.MONITORING
+        assert hc.start_vm.call_count == 4
+        assert manager._clusters[0]["saved_vm_uuids"] == []
+
+
+def test_starting_vms_partial_failure(manager):
+    """STARTING_VMS only retries VMs that failed, not ones that succeeded."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        manager._state = State.STARTING_VMS
+
+        hc = manager._clusters[0]["hypercore"]
+        manager._clusters[0]["saved_vm_uuids"] = ["vm-1", "vm-2"]
+
+        # Attempt 1: vm-1 succeeds, vm-2 fails.
+        # Attempt 2: vm-2 succeeds.
+        hc.start_vm.side_effect = [
+            None,
+            Exception("400 Bad Request"),
+            None,
+        ]
+
+        ups = UPSStatus(
+            status="OL",
+            battery_charge=30.0,
+            battery_runtime=400.0,
+            input_voltage=122.0,
+            output_voltage=120.0,
+            battery_voltage=26.0,
+            ups_load=27.0,
+            on_battery=False,
+            on_line=True,
+        )
+
+        manager._handle_state(ups)
+
+        assert manager._state == State.MONITORING
+        # 3 total calls: vm-1 once (success), vm-2 twice (fail then success)
+        assert hc.start_vm.call_count == 3
+        # Verify vm-1 was NOT retried — it should appear exactly once
+        vm1_calls = [c for c in hc.start_vm.call_args_list if c.args[0] == "vm-1"]
+        assert len(vm1_calls) == 1
+
+
+def test_starting_vms_exhausted_retries(manager):
+    """STARTING_VMS gives up after max_attempts and transitions to MONITORING."""
+    with patch("hypercore_power_manager.monitor.time.sleep") as mock_sleep:
+        manager._state = State.STARTING_VMS
+
+        hc = manager._clusters[0]["hypercore"]
+        manager._clusters[0]["saved_vm_uuids"] = ["vm-1"]
+
+        # Every start_vm call fails — API never becomes ready
+        hc.start_vm.side_effect = Exception("400 Bad Request")
+
+        ups = UPSStatus(
+            status="OL",
+            battery_charge=30.0,
+            battery_runtime=400.0,
+            input_voltage=122.0,
+            output_voltage=120.0,
+            battery_voltage=26.0,
+            ups_load=27.0,
+            on_battery=False,
+            on_line=True,
+        )
+
+        manager._handle_state(ups)
+
+        # Should still transition to MONITORING — don't get stuck
+        assert manager._state == State.MONITORING
+        # 20 attempts, 1 VM each = 20 calls
+        assert hc.start_vm.call_count == 20
+        # saved list still cleared — don't carry stale UUIDs into next event
+        assert manager._clusters[0]["saved_vm_uuids"] == []
+        # 20 sleeps (after each failed attempt except the last)
+        assert mock_sleep.call_count == 20
