@@ -18,11 +18,18 @@ def main() -> None:
         default="config.yaml",
         help="path to the YAML config file (default: config.yaml)",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        type=str.upper,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="logging level (default: INFO)",
+    )
     args = parser.parse_args()
 
     # Log to stderr — systemd captures this into the journal automatically
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, args.log_level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     logger = logging.getLogger("hypercore_power_manager")

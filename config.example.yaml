@@ -2,8 +2,10 @@
 # Copy to /etc/hypercore-power-manager/config.yaml and edit for your environment.
 
 # --- NUT (Network UPS Tools) connection ---
+# Use an IP address for the NUT server — your DNS provider may lose power
+# before the UPS is exhausted.
 nut:
-    host: "your-nut-server-ip" # NUT server IP or hostname
+    host: "192.168.1.20" # IP of your NUT server
     port: 3493 # Default NUT port (optional, default: 3493)
     ups_name: "ups" # UPS name as configured in ups.conf (optional, default: "ups")
     poll_interval_seconds: 5 # Seconds between UPS polls (optional, default: 5)
@@ -12,29 +14,32 @@ nut:
 # Each cluster has one HyperCore API endpoint and one or more physical nodes.
 # The daemon shuts down VMs via the API, then powers off each node via IPMI.
 # Add as many clusters and nodes as needed.
+#
+# Use IP addresses instead of hostnames — your DNS server may lose power
+# before the UPS is exhausted, making hostnames unresolvable.
 clusters:
     # Multi-node cluster example
-    - host: "https://cluster1.example.com"
+    - host: "https://192.168.1.100"
       username: "admin"
       password: "CHANGE_ME"
       vm_shutdown_timeout: 300 # Seconds to wait for VMs to stop (optional, default: 300)
       nodes:
-          - ipmi_host: "idrac-node1.example.com"
+          - ipmi_host: "192.168.1.10"
             ipmi_username: "root"
             ipmi_password: "CHANGE_ME"
-          - ipmi_host: "idrac-node2.example.com"
+          - ipmi_host: "192.168.1.11"
             ipmi_username: "root"
             ipmi_password: "CHANGE_ME"
-          - ipmi_host: "idrac-node3.example.com"
+          - ipmi_host: "192.168.1.12"
             ipmi_username: "root"
             ipmi_password: "CHANGE_ME"
 
     # Single-node cluster example
-    - host: "https://cluster2.example.com"
+    - host: "https://192.168.1.101"
       username: "admin"
       password: "CHANGE_ME"
       nodes:
-          - ipmi_host: "idrac-standalone.example.com"
+          - ipmi_host: "192.168.1.13"
             ipmi_username: "root"
             ipmi_password: "CHANGE_ME"
 
