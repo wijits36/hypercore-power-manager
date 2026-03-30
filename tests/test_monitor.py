@@ -952,3 +952,309 @@ def test_starting_vms_exhausted_retries(manager):
         assert manager._clusters[0]["saved_vms"] == []
         # 20 sleeps (after each failed attempt except the last)
         assert mock_sleep.call_count == 20
+
+
+def test_shutting_down_vms_skips_restored_cluster(manager):
+    """SHUTTING_DOWN_VMS skips clusters with saved_vms already populated."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.save_state"):
+            manager._state = State.SHUTTING_DOWN_VMS
+
+            hc = manager._clusters[0]["hypercore"]
+
+            # Simulate saved_vms loaded from state file during recovery
+            manager._clusters[0]["saved_vms"] = [
+                ("vm-1", "web-server"),
+                ("vm-2", "db-server"),
+            ]
+
+            ups = UPSStatus(
+                status="OB",
+                battery_charge=40.0,
+                battery_runtime=500.0,
+                input_voltage=0.0,
+                output_voltage=120.0,
+                battery_voltage=26.0,
+                ups_load=27.0,
+                on_battery=True,
+                on_line=False,
+            )
+
+            manager._handle_state(ups)
+
+            assert manager._state == State.WAITING_FOR_HOST_SHUTDOWN
+            # Should NOT have logged in or queried VMs — cluster was skipped
+            hc.login.assert_not_called()
+            hc.get_vms.assert_not_called()
+            hc.shutdown_vm.assert_not_called()
+            # saved_vms should be unchanged
+            assert manager._clusters[0]["saved_vms"] == [
+                ("vm-1", "web-server"),
+                ("vm-2", "db-server"),
+            ]
+
+
+def test_shutting_down_vms_writes_state_file(manager):
+    """SHUTTING_DOWN_VMS persists state after capturing VMs."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.save_state") as mock_save:
+            manager._state = State.SHUTTING_DOWN_VMS
+
+            hc = manager._clusters[0]["hypercore"]
+            running_vms = [
+                VMInfo(
+                    uuid="vm-1",
+                    name="web-server",
+                    state="RUNNING",
+                    desired_disposition="RUNNING",
+                ),
+            ]
+            stopped_vms = [
+                VMInfo(
+                    uuid="vm-1",
+                    name="web-server",
+                    state="SHUTOFF",
+                    desired_disposition="SHUTOFF",
+                ),
+            ]
+            hc.get_vms.side_effect = [running_vms, stopped_vms]
+
+            ups = UPSStatus(
+                status="OB",
+                battery_charge=40.0,
+                battery_runtime=500.0,
+                input_voltage=0.0,
+                output_voltage=120.0,
+                battery_voltage=26.0,
+                ups_load=27.0,
+                on_battery=True,
+                on_line=False,
+            )
+
+            manager._handle_state(ups)
+
+            # save_state should have been called with our VM data
+            mock_save.assert_called_once()
+            saved_data = mock_save.call_args[0][0]
+            assert "timestamp" in saved_data
+            assert "clusters" in saved_data
+            cluster_key = "https://cluster1.local"
+            assert cluster_key in saved_data["clusters"]
+            assert saved_data["clusters"][cluster_key] == [
+                {"uuid": "vm-1", "name": "web-server"},
+            ]
+
+
+def test_starting_vms_deletes_state_file(manager):
+    """STARTING_VMS deletes the state file after completing."""
+    with patch("hypercore_power_manager.monitor.delete_state") as mock_delete:
+        manager._state = State.STARTING_VMS
+
+        manager._clusters[0]["saved_vms"] = [("vm-1", "web-server")]
+
+        ups = UPSStatus(
+            status="OL",
+            battery_charge=30.0,
+            battery_runtime=400.0,
+            input_voltage=122.0,
+            output_voltage=120.0,
+            battery_voltage=26.0,
+            ups_load=27.0,
+            on_battery=False,
+            on_line=True,
+        )
+
+        manager._handle_state(ups)
+
+        assert manager._state == State.MONITORING
+        mock_delete.assert_called_once()
+
+
+def test_starting_vms_deletes_state_file_even_when_empty(manager):
+    """STARTING_VMS calls delete_state even with no saved VMs."""
+    with patch("hypercore_power_manager.monitor.delete_state") as mock_delete:
+        manager._state = State.STARTING_VMS
+
+        manager._clusters[0]["saved_vms"] = []
+
+        ups = UPSStatus(
+            status="OL",
+            battery_charge=30.0,
+            battery_runtime=400.0,
+            input_voltage=122.0,
+            output_voltage=120.0,
+            battery_voltage=26.0,
+            ups_load=27.0,
+            on_battery=False,
+            on_line=True,
+        )
+
+        manager._handle_state(ups)
+
+        assert manager._state == State.MONITORING
+        mock_delete.assert_called_once()
+
+
+def test_run_recovery_on_line(manager):
+    """run() recovers from state file when power is on line."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.load_state") as mock_load:
+            with patch("hypercore_power_manager.monitor.delete_state"):
+                mock_load.return_value = {
+                    "timestamp": "2026-03-30T12:00:00+00:00",
+                    "clusters": {
+                        "https://cluster1.local": [
+                            {"uuid": "vm-1", "name": "web-server"},
+                        ],
+                    },
+                }
+
+                # Recovery poll returns on-line power
+                ups_online = UPSStatus(
+                    status="OL",
+                    battery_charge=100.0,
+                    battery_runtime=1500.0,
+                    input_voltage=122.0,
+                    output_voltage=120.0,
+                    battery_voltage=27.0,
+                    ups_load=27.0,
+                    on_battery=False,
+                    on_line=True,
+                )
+
+                # First call is the recovery poll in run().
+                # Second call is the main loop — raise to exit.
+                manager._nut.poll.side_effect = [
+                    ups_online,
+                    KeyboardInterrupt,
+                ]
+
+                try:
+                    manager.run()
+                except KeyboardInterrupt:
+                    pass
+
+                assert manager._state == State.POWERING_ON_HOSTS
+                assert manager._clusters[0]["saved_vms"] == [
+                    ("vm-1", "web-server"),
+                ]
+
+
+def test_run_recovery_on_battery(manager):
+    """run() re-enters shutdown cycle when power is still on battery."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.load_state") as mock_load:
+            with patch("hypercore_power_manager.monitor.delete_state"):
+                mock_load.return_value = {
+                    "timestamp": "2026-03-30T12:00:00+00:00",
+                    "clusters": {
+                        "https://cluster1.local": [
+                            {"uuid": "vm-1", "name": "web-server"},
+                        ],
+                    },
+                }
+
+                ups_battery = UPSStatus(
+                    status="OB",
+                    battery_charge=40.0,
+                    battery_runtime=500.0,
+                    input_voltage=0.0,
+                    output_voltage=120.0,
+                    battery_voltage=26.0,
+                    ups_load=27.0,
+                    on_battery=True,
+                    on_line=False,
+                )
+
+                manager._nut.poll.side_effect = [
+                    ups_battery,
+                    KeyboardInterrupt,
+                ]
+
+                try:
+                    manager.run()
+                except KeyboardInterrupt:
+                    pass
+
+                assert manager._state == State.SHUTTING_DOWN_VMS
+                assert manager._clusters[0]["saved_vms"] == [
+                    ("vm-1", "web-server"),
+                ]
+
+
+def test_run_recovery_nut_unreachable(manager):
+    """run() defaults to SHUTTING_DOWN_VMS if NUT is unreachable during recovery."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.load_state") as mock_load:
+            with patch("hypercore_power_manager.monitor.delete_state"):
+                mock_load.return_value = {
+                    "timestamp": "2026-03-30T12:00:00+00:00",
+                    "clusters": {
+                        "https://cluster1.local": [
+                            {"uuid": "vm-1", "name": "web-server"},
+                        ],
+                    },
+                }
+
+                # All 6 recovery poll attempts fail, then main loop exits
+                manager._nut.poll.side_effect = [
+                    Exception("NUT not ready"),
+                    Exception("NUT not ready"),
+                    Exception("NUT not ready"),
+                    Exception("NUT not ready"),
+                    Exception("NUT not ready"),
+                    Exception("NUT not ready"),
+                    KeyboardInterrupt,
+                ]
+
+                try:
+                    manager.run()
+                except KeyboardInterrupt:
+                    pass
+
+                assert manager._state == State.SHUTTING_DOWN_VMS
+                assert manager._clusters[0]["saved_vms"] == [
+                    ("vm-1", "web-server"),
+                ]
+
+
+def test_run_recovery_no_matching_clusters(manager):
+    """run() ignores state file when no clusters match current config."""
+    with patch("hypercore_power_manager.monitor.time.sleep"):
+        with patch("hypercore_power_manager.monitor.load_state") as mock_load:
+            with patch("hypercore_power_manager.monitor.delete_state") as mock_delete:
+                mock_load.return_value = {
+                    "timestamp": "2026-03-30T12:00:00+00:00",
+                    "clusters": {
+                        "https://old-cluster.local": [
+                            {"uuid": "vm-1", "name": "old-vm"},
+                        ],
+                    },
+                }
+
+                ups_online = UPSStatus(
+                    status="OL",
+                    battery_charge=100.0,
+                    battery_runtime=1500.0,
+                    input_voltage=122.0,
+                    output_voltage=120.0,
+                    battery_voltage=27.0,
+                    ups_load=27.0,
+                    on_battery=False,
+                    on_line=True,
+                )
+
+                manager._nut.poll.side_effect = [
+                    ups_online,
+                    KeyboardInterrupt,
+                ]
+
+                try:
+                    manager.run()
+                except KeyboardInterrupt:
+                    pass
+
+                # No match — should delete stale file and stay in MONITORING
+                assert manager._state == State.MONITORING
+                mock_delete.assert_called_once()
+                assert manager._clusters[0]["saved_vms"] == []

@@ -2,12 +2,14 @@
 
 import logging
 import time
+from datetime import datetime, timezone
 from enum import Enum, auto
 
 from .config import Config
 from .hypercore_client import HyperCoreClient
 from .ipmi_client import IPMIClient
 from .nut_client import NUTClient
+from .state import delete_state, load_state, save_state
 
 
 class State(Enum):
@@ -88,6 +90,58 @@ class PowerManager:
             t.host_shutdown_delay,
             t.host_boot_timeout,
         )
+
+        # Check for unfinished shutdown cycle from a previous run
+        state_data = load_state()
+        if state_data is not None:
+            clusters_info = state_data.get("clusters", {})
+            restored_count = 0
+
+            for cluster in self._clusters:
+                host = cluster["config"].host
+                if host in clusters_info:
+                    vms = clusters_info[host]
+                    cluster["saved_vms"] = [(vm["uuid"], vm["name"]) for vm in vms]
+                    restored_count += len(vms)
+
+            if restored_count > 0:
+                logger.warning(
+                    "Recovered state file from %s with %d VM(s) across %d cluster(s)",
+                    state_data.get("timestamp", "unknown"),
+                    restored_count,
+                    len(clusters_info),
+                )
+
+                # Poll NUT to determine recovery path — retry if NUT
+                # is still starting up after a power event reboot
+                ups = None
+                for attempt in range(6):
+                    try:
+                        ups = self._nut.poll()
+                        break
+                    except Exception:
+                        if attempt == 0:
+                            logger.info("NUT not ready during recovery, will retry")
+                        time.sleep(10)
+
+                if ups is not None and ups.on_line:
+                    logger.info("Power is on line, entering recovery")
+                    self._state = State.POWERING_ON_HOSTS
+                else:
+                    if ups is None:
+                        logger.warning("Could not reach NUT, assuming power still out")
+                    else:
+                        logger.warning(
+                            "Power still on battery, re-entering shutdown cycle"
+                        )
+                    self._state = State.SHUTTING_DOWN_VMS
+            else:
+                logger.warning(
+                    "State file found from %s but no matching clusters "
+                    "in config, ignoring",
+                    state_data.get("timestamp", "unknown"),
+                )
+                delete_state()
 
         # Tracks whether we're in a poll failure streak.
         # Suppresses repeated error logs until polling recovers.
@@ -173,10 +227,24 @@ class PowerManager:
 
     def _handle_shutting_down_vms(self, ups) -> None:
         """Shut down all running VMs across all clusters."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        logged_in_clusters = set()
+
         # Phase 1: Login and send SHUTDOWN to all running VMs
         for cluster in self._clusters:
             hc = cluster["hypercore"]
             config = cluster["config"]
+
+            # If saved_vms is already populated (loaded from state file
+            # after a crash), skip this cluster — VMs were already
+            # shut down in the previous run.
+            if cluster["saved_vms"]:
+                logger.info(
+                    "Cluster %s — restored %d VMs from state file, skipping shutdown",
+                    config.host,
+                    len(cluster["saved_vms"]),
+                )
+                continue
 
             try:
                 hc.login()
@@ -184,11 +252,11 @@ class PowerManager:
                 logger.error("Failed to login to %s: %s", config.host, e)
                 continue
 
+            logged_in_clusters.add(config.host)
+
             vms = hc.get_vms()
             running = [vm for vm in vms if vm.state == "RUNNING"]
 
-            # TODO: Persist saved_vms to disk so recovery can
-            # resume if the Pi reboots during a power event.
             cluster["saved_vms"] = [(vm.uuid, vm.name) for vm in running]
             logger.info(
                 "Cluster %s — saving %d running VMs: %s",
@@ -196,6 +264,9 @@ class PowerManager:
                 len(running),
                 ", ".join(vm.name for vm in running),
             )
+
+            # Persist state incrementally — survives Pi crash between clusters
+            self._write_state(timestamp)
 
             for vm in running:
                 logger.info("Sending SHUTDOWN to %s (%s)", vm.name, vm.uuid)
@@ -208,7 +279,12 @@ class PowerManager:
         for cluster in self._clusters:
             hc = cluster["hypercore"]
             config = cluster["config"]
-            # Build a UUID->name lookup and track pending UUIDs
+
+            # Skip clusters we didn't log into (restored from state file
+            # or login failed) — no active session to query
+            if config.host not in logged_in_clusters:
+                continue
+
             pending_names = {uuid: name for uuid, name in cluster["saved_vms"]}
             pending = set(pending_names.keys())
 
@@ -419,5 +495,18 @@ class PowerManager:
 
             cluster["saved_vms"] = []
 
+        delete_state()
         self._state = State.MONITORING
         logger.info("Recovery complete. Resuming normal monitoring.")
+
+    def _write_state(self, timestamp: str) -> None:
+        """Build state dict from all clusters and persist to disk."""
+        clusters_data = {}
+        for cluster in self._clusters:
+            if cluster["saved_vms"]:
+                host = cluster["config"].host
+                clusters_data[host] = [
+                    {"uuid": uuid, "name": name} for uuid, name in cluster["saved_vms"]
+                ]
+
+        save_state({"timestamp": timestamp, "clusters": clusters_data})

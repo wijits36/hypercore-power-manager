@@ -27,8 +27,7 @@ ProtectHome=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
 
-# Future: uncomment when state persistence is implemented
-# StateDirectory=hypercore-power-manager
+StateDirectory=hypercore-power-manager
 
 [Install]
 WantedBy=multi-user.target
