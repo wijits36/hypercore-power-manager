@@ -522,16 +522,13 @@ def test_shutting_down_vms_force_stop_stragglers(manager):
             # First call returns running VMs, subsequent calls show vm-2 stuck
             hc.get_vms.side_effect = [running_vms] + [still_running] * 10
 
-            # Simulate time progressing past the vm_shutdown_timeout (300s).
-            # The handler calls time.time() to set a deadline and check it
-            # each iteration. We start at T=1000, then jump past the deadline.
-            call_count = [0]
-
             def fake_time():
-                call_count[0] += 1
-                # First call sets the deadline (1000 + 300 = 1300)
-                # After a few calls, jump past the deadline
-                if call_count[0] <= 2:
+                # Key off get_vms calls, not our own call count.
+                # Before the first Phase 2 poll completes, stay "before deadline".
+                # After it completes, jump past deadline so stragglers get forced.
+                # This is immune to Python version differences in how often
+                # logging or other internals call time.time().
+                if hc.get_vms.call_count < 2:
                     return 1000.0
                 return 1301.0
 
