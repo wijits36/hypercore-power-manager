@@ -25,7 +25,10 @@ It's designed to run on a Raspberry Pi or similar low-power device that stays al
   for setup — the daemon connects to NUT over TCP, so it can run on the same
   host as the NUT server or a different one)
 - **Scale Computing HyperCore** cluster(s) with REST API access
-- **IPMI access** to each HyperCore host (Dell iDRAC, Lenovo XClarity, HPE iLO, etc.)
+- **IPMI access** to each HyperCore host (Dell iDRAC, Lenovo XClarity, HPE iLO,
+  etc.) — IPMI over LAN must be enabled on each BMC. This is currently the only
+  method used for host power control; REST API-based shutdown is planned for a
+  future release.
 - **A Linux host** to run the daemon, on UPS battery power so it stays alive
   during outages (a Raspberry Pi or similar low-power device is ideal)
 - **Python 3.11+** (tested on 3.13)
@@ -64,22 +67,33 @@ The config file lives at `/etc/hypercore-power-manager/config.yaml`. The install
 script copies [config.example.yaml](config.example.yaml) as a starting template
 with inline comments explaining the fields.
 
-The config has four sections:
+The config has three sections:
 
 **nut** — Connection details for your NUT server (host, port, UPS name, polling
 interval). If the daemon runs on the same host as the NUT server, use `localhost`.
 
 **clusters** — A list of HyperCore clusters to manage. Each cluster needs its REST
 API URL and credentials, along with a list of nodes and their IPMI credentials.
-Single-node and multi-node clusters are both supported.
+Single-node and multi-node clusters are both supported. Use IP addresses instead
+of hostnames — during a power event, your DNS server may lose power before the
+UPS is exhausted, making hostnames unresolvable.
 
 **thresholds** — Battery percentage and estimated runtime thresholds that trigger
 shutdown, plus the delay between VM shutdown and host power-off (the abort
 window). While on battery, shutdown is triggered when *either* threshold is
 breached.
 
-**logging** — Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Logs go to the
-systemd journal when running as a service.
+Both `battery_percent` and `runtime_seconds` are UPS firmware estimates derived
+from the same internal voltage curve modeling; they are not independent
+measurements. UPS charge reporting becomes increasingly unreliable as batteries
+age; in testing, a UPS reported 59% charge and then died moments later. The
+defaults (80% / 600 seconds) are aggressive by design: a false-positive shutdown
+is recoverable, but a missed shutdown risks data loss. `runtime_seconds` is the
+only load-aware threshold; it catches scenarios where an undersized UPS shows
+healthy charge but has very little actual runtime remaining under load.
+
+The log level defaults to INFO and can be changed with the `--log-level` flag
+(see [Usage](#usage)). Logs go to the systemd journal when running as a service.
 
 You will need the following credentials before configuring:
 
@@ -108,7 +122,8 @@ sudo journalctl -u hypercore-power-manager -f
 For testing or debugging, you can run the daemon directly:
 ```bash
 /opt/hypercore-power-manager/.venv/bin/python -m hypercore_power_manager \
-    --config /etc/hypercore-power-manager/config.yaml
+    --config /etc/hypercore-power-manager/config.yaml \
+    --log-level DEBUG
 ```
 
 This runs in the foreground and logs to the terminal. Press `Ctrl+C` to stop.
@@ -197,7 +212,19 @@ are correct. IPMI over LAN must be enabled on each host's BMC. Test with
 
 **Daemon starts but takes no action on battery** — Check that the UPS name in
 the config matches the NUT UPS name, and that thresholds are set appropriately.
-Run with `DEBUG` log level to see every poll cycle and threshold check.
+Run with `--log-level DEBUG` to see every poll cycle and threshold check.
+
+## Roadmap
+
+Planned for future releases:
+
+- **REST API cluster shutdown** — use the HyperCore REST API as the primary
+  shutdown method, with IPMI as a fallback. This will make IPMI optional for
+  environments where it is not available.
+- **OIDC authentication** — support for HyperCore clusters that use OIDC instead
+  of local credentials.
+- **BIOS power policy awareness** — detect whether hosts are configured to
+  "always on" or "last state" and adjust recovery behavior accordingly.
 
 ## License
 
