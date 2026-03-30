@@ -82,6 +82,15 @@ else
     FRESH_INSTALL=true
 fi
 
+# --- Set up state directory ---
+STATE_DIR="/var/lib/${APP_NAME}"
+if [[ ! -d "${STATE_DIR}" ]]; then
+    install -d -m 750 -o "${SERVICE_USER}" -g "${SERVICE_USER}" "${STATE_DIR}"
+    echo "Created state directory: ${STATE_DIR}"
+else
+    echo "State directory already exists at ${STATE_DIR}, skipping."
+fi
+
 # --- Install service file ---
 echo "Installing systemd service file..."
 install -m 644 -o root -g root \
