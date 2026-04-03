@@ -951,20 +951,33 @@ def test_starting_vms_exhausted_retries(manager):
         assert mock_sleep.call_count == 20
 
 
-def test_shutting_down_vms_skips_restored_cluster(manager):
-    """SHUTTING_DOWN_VMS skips clusters with saved_vms already populated."""
+def test_shutting_down_vms_resends_to_restored_cluster(manager):
+    """SHUTTING_DOWN_VMS re-sends shutdown to clusters restored from state file."""
     with patch("hypercore_power_manager.monitor.time.sleep"):
         with patch("hypercore_power_manager.monitor.save_state"):
             manager._state = State.SHUTTING_DOWN_VMS
-
             hc = manager._clusters[0]["hypercore"]
-
             # Simulate saved_vms loaded from state file during recovery
             manager._clusters[0]["saved_vms"] = [
                 ("vm-1", "web-server"),
                 ("vm-2", "db-server"),
             ]
-
+            # Phase 2 polls get_vms — both already SHUTOFF
+            stopped_vms = [
+                VMInfo(
+                    uuid="vm-1",
+                    name="web-server",
+                    state="SHUTOFF",
+                    desired_disposition="SHUTOFF",
+                ),
+                VMInfo(
+                    uuid="vm-2",
+                    name="db-server",
+                    state="SHUTOFF",
+                    desired_disposition="SHUTOFF",
+                ),
+            ]
+            hc.get_vms.return_value = stopped_vms
             ups = UPSStatus(
                 status="OB",
                 battery_charge=40.0,
@@ -976,14 +989,13 @@ def test_shutting_down_vms_skips_restored_cluster(manager):
                 on_battery=True,
                 on_line=False,
             )
-
             manager._handle_state(ups)
-
             assert manager._state == State.WAITING_FOR_HOST_SHUTDOWN
-            # Should NOT have logged in or queried VMs — cluster was skipped
-            hc.login.assert_not_called()
-            hc.get_vms.assert_not_called()
-            hc.shutdown_vm.assert_not_called()
+            # Should have logged in and re-sent shutdown
+            hc.login.assert_called_once()
+            assert hc.shutdown_vm.call_count == 2
+            hc.shutdown_vm.assert_any_call("vm-1")
+            hc.shutdown_vm.assert_any_call("vm-2")
             # saved_vms should be unchanged
             assert manager._clusters[0]["saved_vms"] == [
                 ("vm-1", "web-server"),

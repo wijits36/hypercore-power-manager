@@ -229,6 +229,7 @@ class PowerManager:
         """Shut down all running VMs across all clusters."""
         timestamp = datetime.now(timezone.utc).isoformat()
         logged_in_clusters = set()
+        cluster_shutdown_start: dict[str, float] = {}
 
         # Phase 1: Login and send SHUTDOWN to all running VMs
         for cluster in self._clusters:
@@ -236,14 +237,29 @@ class PowerManager:
             config = cluster["config"]
 
             # If saved_vms is already populated (loaded from state file
-            # after a crash), skip this cluster — VMs were already
-            # shut down in the previous run.
+            # after a crash), attempt shutdown again.
             if cluster["saved_vms"]:
                 logger.info(
-                    "Cluster %s — restored %d VMs from state file, skipping shutdown",
+                    "Cluster %s — restored %d VMs from state file, re-sending shutdown",
                     config.host,
                     len(cluster["saved_vms"]),
                 )
+                try:
+                    hc.login()
+                except Exception as e:
+                    logger.error("Failed to login to %s: %s", config.host, e)
+                    continue
+
+                logged_in_clusters.add(config.host)
+                cluster_shutdown_start[config.host] = time.time()
+
+                for uuid, name in cluster["saved_vms"]:
+                    logger.info("Sending SHUTDOWN to %s (%s)", name, uuid)
+                    try:
+                        hc.shutdown_vm(uuid)
+                    except Exception as e:
+                        logger.error("Failed to shutdown %s: %s", name, e)
+
                 continue
 
             try:
@@ -268,6 +284,8 @@ class PowerManager:
             # Persist state incrementally — survives Pi crash between clusters
             self._write_state(timestamp)
 
+            cluster_shutdown_start[config.host] = time.time()
+
             for vm in running:
                 logger.info("Sending SHUTDOWN to %s (%s)", vm.name, vm.uuid)
                 try:
@@ -289,7 +307,12 @@ class PowerManager:
             pending = set(pending_names.keys())
 
             if pending:
-                deadline = time.time() + config.vm_shutdown_timeout
+                elapsed = time.time() - cluster_shutdown_start.get(
+                    config.host, time.time()
+                )
+                remaining = max(0, config.vm_shutdown_timeout - elapsed)
+                deadline = time.time() + remaining
+
                 while pending and time.time() < deadline:
                     time.sleep(10)
                     try:
