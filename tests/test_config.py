@@ -104,7 +104,7 @@ clusters:
   - host: "cluster2.example"
     username: "admin2"
     password: "testpass2"
-    vm_shutdown_timeout: 120
+    vm_shutdown_timeout: 300
     nodes:
       - ipmi_host: "ipmi2a.example"
         ipmi_username: "root"
@@ -120,11 +120,11 @@ clusters:
     # First cluster: one node, default timeout
     assert config.clusters[0].host == "cluster1.example"
     assert len(config.clusters[0].nodes) == 1
-    assert config.clusters[0].vm_shutdown_timeout == 300
+    assert config.clusters[0].vm_shutdown_timeout == 120
     # Second cluster: two nodes, custom timeout
     assert config.clusters[1].host == "cluster2.example"
     assert len(config.clusters[1].nodes) == 2
-    assert config.clusters[1].vm_shutdown_timeout == 120
+    assert config.clusters[1].vm_shutdown_timeout == 300
     assert config.clusters[1].nodes[1].ipmi_host == "ipmi2b.example"
 
 

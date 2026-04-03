@@ -22,7 +22,7 @@ clusters:
     - host: "https://192.168.1.100"
       username: "admin"
       password: "CHANGE_ME"
-      vm_shutdown_timeout: 300 # Seconds to wait for VMs to stop (optional, default: 300)
+      vm_shutdown_timeout: 120 # Seconds to wait for VMs to stop (optional, default: 120)
       nodes:
           - ipmi_host: "192.168.1.10"
             ipmi_username: "root"

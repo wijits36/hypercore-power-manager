@@ -35,7 +35,7 @@ class ClusterConfig:
     username: str
     password: str
     nodes: list[NodeConfig]
-    vm_shutdown_timeout: int = 300
+    vm_shutdown_timeout: int = 120
     verify_ssl: bool = False
 
 
