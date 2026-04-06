@@ -8,6 +8,10 @@ hypercore-power-manager is a daemon that monitors your UPS through a NUT server 
 
 It's a systemd service designed to run on a Raspberry Pi or similar low-power device that stays alive on UPS battery while it shuts down and recovers the infrastructure around it.
 
+## Demo
+
+https://github.com/user-attachments/assets/11f4e574-8df3-4d65-8e67-967f0b7fe922
+
 ## Features
 
 - **Two-stage shutdown** — VMs are shut down first via the HyperCore REST API, then hosts are powered off via IPMI after a configurable delay
