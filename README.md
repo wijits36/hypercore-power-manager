@@ -6,7 +6,7 @@ Graceful UPS-driven shutdown and recovery for Scale Computing HyperCore clusters
 
 hypercore-power-manager is a daemon that monitors your UPS through a NUT server and automatically orchestrates graceful shutdown and recovery of Scale Computing HyperCore VMs and clusters. When the UPS switches to battery, it shuts down VMs via the HyperCore REST API, then powers off hosts via IPMI. When power returns, it brings everything back up in the correct order.
 
-It's designed to run on a Raspberry Pi or similar low-power device that stays alive on UPS battery while it shuts down and recovers the infrastructure around it. It runs as a systemd service; install it, configure it, and forget about it until you need it.
+It's a systemd service designed to run on a Raspberry Pi or similar low-power device that stays alive on UPS battery while it shuts down and recovers the infrastructure around it.
 
 ## Features
 
@@ -16,7 +16,7 @@ It's designed to run on a Raspberry Pi or similar low-power device that stays al
 - **Multi-cluster support** — manages multiple independent HyperCore clusters, whether single-node or multi-node
 - **NUT-based monitoring** — polls UPS status through a NUT server, supporting any UPS hardware that NUT supports
 - **Systemd integration** — runs as a managed service with journal logging
-- **Idempotent installer** — `scripts/install.sh` handles fresh installs and upgrades
+- **Install & upgrade script** — `scripts/install.sh` handles fresh installs and upgrades
 
 ## Prerequisites
 
@@ -75,7 +75,7 @@ interval). If the daemon runs on the same host as the NUT server, use `localhost
 **clusters** — A list of HyperCore clusters to manage. Each cluster needs its REST
 API URL and credentials, along with a list of nodes and their IPMI credentials.
 Single-node and multi-node clusters are both supported. Use IP addresses instead
-of hostnames — during a power event, your DNS server may lose power before the
+of hostnames; during a power event, your DNS server may lose power before the
 UPS is exhausted, making hostnames unresolvable.
 
 **thresholds** — Battery percentage and estimated runtime thresholds that trigger
@@ -83,17 +83,15 @@ shutdown, plus the delay between VM shutdown and host power-off (the abort
 window). While on battery, shutdown is triggered when *either* threshold is
 breached.
 
-Both `battery_percent` and `runtime_seconds` are UPS firmware estimates derived
-from the same internal voltage curve modeling; they are not independent
+Both `battery_percent` and `runtime_seconds` are UPS firmware estimates; they are not accurate
 measurements. UPS charge reporting becomes increasingly unreliable as batteries
-age; in testing, a UPS reported 59% charge and then died moments later. The
-defaults (80% / 600 seconds) are aggressive by design: a false-positive shutdown
+age. The defaults (80% / 600 seconds) are aggressive by design: a false-positive shutdown
 is recoverable, but a missed shutdown risks data loss. `runtime_seconds` is the
 only load-aware threshold; it catches scenarios where an undersized UPS shows
 healthy charge but has very little actual runtime remaining under load.
 
 The log level defaults to INFO and can be changed with the `--log-level` flag
-(see [Usage](#usage)). Logs go to the systemd journal when running as a service.
+(see **Usage** below). Logs go to the systemd journal when running as a service.
 
 You will need the following credentials before configuring:
 
@@ -139,18 +137,16 @@ power event occurs, it walks through a shutdown and recovery sequence:
 2. **Thresholds are monitored** — the daemon watches battery percentage and
    estimated runtime. As long as both remain above the configured thresholds,
    it stays in a holding pattern. If power returns now, the daemon resumes
-   normal monitoring — the UPS handled it.
+   normal monitoring; the UPS handled it.
 3. **Shutdown triggered** — when either threshold is breached, the daemon begins
-   graceful VM shutdown across all configured clusters via the HyperCore REST
-   API. Once this begins, it runs to completion even if power restores — there
-   is no safe way to partially reverse a VM shutdown sequence.
+   graceful VM shutdown across all configured clusters via the HyperCore REST API.
 4. **VMs stop** — the daemon waits for all VMs to reach a stopped state, up to
    the configured `vm_shutdown_timeout` per cluster. Any VM that does not shut
    down gracefully within this window is force-stopped.
 5. **Abort window** — after all VMs are stopped, the daemon waits for
    `host_shutdown_delay` seconds before powering off hosts. If power restores
    during this window, the daemon skips host shutdown and jumps straight to
-   restarting VMs. No unnecessary outage.
+   restarting VMs.
 6. **Hosts power off** — if power has not returned, the daemon sends IPMI
    power-off commands to each host. The hosts go down; the daemon (running on
    a separate device still on UPS battery) stays alive and waits.
@@ -159,7 +155,7 @@ power event occurs, it walks through a shutdown and recovery sequence:
 8. **Recovery** — the daemon waits for each host's HyperCore REST API to become
    reachable (up to `host_boot_timeout`), then restarts the VMs that were
    running before the shutdown. HyperCore preserves each VM's last power
-   state — since the daemon shut them down gracefully, their last state is
+   state; since the daemon shut them down gracefully, their last state is
    "off," so the daemon must explicitly restart them.
 
 ### State reference
@@ -221,9 +217,7 @@ Planned for future releases:
 - **REST API cluster shutdown** — use the HyperCore REST API as the primary
   shutdown method, with IPMI as a fallback. This will make IPMI optional for
   environments where it is not available.
-- **OIDC authentication** — support for HyperCore clusters that use OIDC instead
-  of local credentials.
-- **BIOS power policy awareness** — detect whether hosts are configured to
+- **BIOS power policy awareness** — attempt to detect whether hosts are configured to
   "always on" or "last state" and adjust recovery behavior accordingly.
 
 ## License
